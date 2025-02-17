@@ -1,0 +1,9 @@
+# compile vhdl design source files
+vhdl xil_defaultlib  \
+"../../../../HybridHistogramsOnStreamingData.srcs/sources_1/new/ForwardingBRAMBasedBucket.vhd" \
+"../../../../HybridHistogramsOnStreamingData.srcs/sources_1/imports/new/LatchedRelay.vhd" \
+"../../../../HybridHistogramsOnStreamingData.srcs/sources_1/new/ReadFirstBRAM.vhd" \
+"../../../../HybridHistogramsOnStreamingData.srcs/sim_1/new/Tb_FineGrainedBRAMBucket_simple.vhd" \
+
+# Do not sort compile order
+nosort
