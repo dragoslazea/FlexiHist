@@ -20,6 +20,23 @@ The generic parameters are:
 | `NUM_HASHES`         | Number of hash functions (range: 3 to 5, default: 4) |
 | `FILTER_SIZE_BITS`   | Size of the filter in bits (range: 1 to 32, default: 10) |
 
+The I/O ports of this generic interface are:
+
+| Port Name          | Description |
+|--------------------|-------------|
+| **aclk**          | Clock signal driving the design |
+| **nrst**          | Active-low reset signal |
+| **s_axis_in**     | Input AXI4-Stream interface, including:  |
+|                  | - **s_axis_in_tvalid**: Indicates when valid data is present. |
+|                  | - **s_axis_in_tready**: Indicates when the module is ready to receive data. |
+|                  | - **s_axis_in_tdata**: Data input (68-bit wide). |
+|                  | - **s_axis_in_tdest**: Destination identifier for routing (32-bit wide). |
+| **m_axis_out**    | Output AXI4-Stream interface, including:  |
+|                  | - **m_axis_out_tvalid**: Indicates when valid output data is available. |
+|                  | - **m_axis_out_tready**: Indicates when the receiver is ready to accept data. |
+|                  | - **m_axis_out_tdata**: Data output (68-bit wide). |
+|                  | - **m_axis_out_tdest**: Destination identifier for routing (32-bit wide). |
+
 To define a specific histogram, multiple buckets are connected as a pipeline. The histogram processes a single data stream containing both samples and metadata. Initially, the metadata specifies the operation code, and as the data moves through the histogram's buckets, it accumulates statistical information.
 
 ### Software histogram composer important functions
