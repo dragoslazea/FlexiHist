@@ -2,6 +2,13 @@
 
 **FlexiHis** is a software-driven configurable FPGA histogram module that allows assembling various types of buckets. Using a software histogram composer, it automates the design space exploration and is particularly useful in determining how many buckets of what type should result in the most suitable histogram configuration for a specific data distribution.
 
+## Pre-requisites
+- Xilinx Vivado 2022.1 or higher
+- Python 3.10.6
+- NumPy 2.0.0
+- matplotlib: 3.9.1
+- PyYAML 5.4.1 
+
 ## Structure of the repository
 This repository is structured as follows:
 - ```FlexiHist/hw_HistogramDesign``` contains the hardware design of the histogram. It consists of multiple bucket types, all sharing a common I/O interface, allowing them to be connected in a pipeline to form the final histogram design. The implementations of different bucket types can be found in ```FlexiHist/hw_HistogramDesign/hw_HistogramDesign.srcs/sources_1/new/```.
