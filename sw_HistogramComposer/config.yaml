@@ -1,0 +1,18 @@
+# config.yaml - FlexiHist experiment configuration
+
+# Path to the input dataset
+data_path: "./Data/elevator_predictive_maintenance_s4_x1000.csv"
+
+# Path to save output results
+outputs_path: './Outputs/results_test_cfg.csv'
+
+# Target FPGA platform
+platform: "basys3"  # available options at the moment: basys3, zynq
+
+# FPGA resource budgets for different platforms
+budgets:
+  basys3: [20800, 41600, 50, 90]        # [LUTs, FFs, DSPs, BRAMs]
+  zynq: [230400, 460800, 312, 1728]     # [LUTs, FFs, DSPs, BRAMs]
+
+# Maximum number of buckets in the histogram
+max_buckets: 20

@@ -3,6 +3,7 @@ import random
 import math
 import matplotlib.pyplot as plt
 import csv
+import yaml
 
 class Bucket:
   def __init__(self):
@@ -73,9 +74,9 @@ class CoarseGrainedSimpleBucket(Bucket):
     return (wLUT * LUT + wFF * FF + wBRAM * BRAM + wDSP * DSP) / total_res
 
 class CoarseGrainedDistinctBucket(Bucket):
-  resources_S = (1489, 403, 0, 0) # (LUTs, FFs, BRAM, DSPs) for 64-bit bit-array
-  resources_M = (1815, 595, 0, 0) # (LUTs, FFs, BRAM, DSPs) for 256-bit bit-array
-  resources_L = (2105, 851, 0, 0) # (LUTs, FFs, BRAM, DSPs) for 512-bit bit-array
+  resources_S = (1489, 403, 0, 30) # (LUTs, FFs, BRAM, DSPs) for 64-bit bit-array
+  resources_M = (1815, 595, 0, 30) # (LUTs, FFs, BRAM, DSPs) for 256-bit bit-array
+  resources_L = (2105, 851, 0, 30) # (LUTs, FFs, BRAM, DSPs) for 512-bit bit-array
 
   latency = 1 # clock cycles
 
@@ -422,6 +423,7 @@ class FineGrainedBucket(Bucket):
   resources_S = (678, 540, 0.5, 0) # (LUTs, FFs, BRAM, DSPs) for 2 ** 7 = 128
   resources_M = (678, 540, 2, 0) # (LUTs, FFs, BRAM, DSPs) for 2 ** 11 = 2K
   resources_L = (678, 540, 7.5, 0) # (LUTs, FFs, BRAM, DSPs) for 2 ** 13 = 8K
+  resources_XL = (678, 540, 50, 0) # (LUTs, FFs, BRAM, DSPs) for 2 ** 16 = 64K
 
   latency = 4 # clock cycles
 
@@ -437,8 +439,10 @@ class FineGrainedBucket(Bucket):
       (self.LUT, self.FF, self.BRAM, self.DSP) = self.resources_S
     elif num_sub_buckets_bits <= 11:
       (self.LUT, self.FF, self.BRAM, self.DSP) = self.resources_M
-    else:
+    elif num_sub_buckets_bits <= 13:
       (self.LUT, self.FF, self.BRAM, self.DSP) = self.resources_L
+    else:
+      (self.LUT, self.FF, self.BRAM, self.DSP) = self.resources_XL
 
   def config(self, low, high):
     if self.is_configured == False:
@@ -476,8 +480,10 @@ class FineGrainedBucket(Bucket):
       return cls.resources_S
     elif size == 'M':
       return cls.resources_M
-    else:
+    elif size == 'L':
       return cls.resources_L
+    else:
+      return cls.resources_XL
 
   @classmethod
   def create_default_bucket(cls, size):
@@ -485,8 +491,10 @@ class FineGrainedBucket(Bucket):
       return FineGrainedBucket(7)
     elif size == 'M':
       return FineGrainedBucket(11)
-    else:
+    elif size == 'L':
       return FineGrainedBucket(13)
+    else:
+      return FineGrainedBucket(16)
 
   def avg_resource_usage(self, available_budget=None):
     if available_budget == None:
@@ -854,8 +862,8 @@ def construct_candidates(data, ground_truth_histo, resource_budget, num_buckets,
     candidate_buckets = []
 
     for bucket_type in bucket_types:
-      if high - low < 50 and bucket_type == FineGrainedBucket or high - low < 50 and bucket_type == CoarseGrainedCountingBloomBucket:
-        continue
+      # if high - low < 50 and bucket_type == FineGrainedBucket or high - low < 50 and bucket_type == CoarseGrainedCountingBloomBucket:
+      #   continue
 
       for size in sizes:
         bucket = bucket_type.create_default_bucket(size)
@@ -868,7 +876,7 @@ def construct_candidates(data, ground_truth_histo, resource_budget, num_buckets,
             bucket.update(sample)
             ground_truth_count -= 1
 
-        err = mse_of_bucket(bucket, ground_truth_histo, min_data)
+        err = rmse_of_bucket(bucket, ground_truth_histo, min_data)
         LUT, FF, BRAM, DSP = bucket.get_resource_consumption()
         if LUT > avLUT or FF > avFF or BRAM > avBRAM or DSP > avDSP:
           continue
@@ -1029,6 +1037,274 @@ def read_csv_file(file_path):
         data_list.append(int(row[1]))
     return data_list
 
+def compute_small_footprint_baseline(data, ground_truth_histo, num_buckets):
+  buckets_config = histogram_configuration(data, ground_truth_histo, num_buckets, 'width')
+
+  min_data = min(data)
+  max_data = max(data)
+  baseline_histo = HybridHistogram(min_data, max_data + 1)
+
+  for config in buckets_config:
+    low, high, stat = config
+
+    bucket = CoarseGrainedSimpleBucket.create_default_bucket('L')
+    bucket.config(low, high)
+    baseline_histo.add_bucket(bucket)
+    
+    for sample in range(low, high):
+      ground_truth_count = ground_truth_histo[sample - min_data]
+
+      while ground_truth_count > 0:
+        baseline_histo.update(sample)
+        ground_truth_count -= 1
+
+  return baseline_histo
+
+def compute_small_footprint_baseline_all(data_path, resource_budget, max_num_buckets):
+  outputs_path = './Baselines/' + data_path.rsplit('/', 1)[-1] + '_baseline_small_footprint.csv'
+  data = read_csv_file(data_path)
+  ground_truth_histo = compute_per_value_histogram(data)
+
+  min_val = min(data)
+  # max_val = max(data)
+
+  with open(outputs_path, mode="w", encoding="utf-8") as file:
+
+    file.write(
+      "max # buckets" + "," +
+      "actual # buckets" + "," +
+      "overall err" + "," +
+      "weighted res. consumption" + "," +
+      "latency (cycles)" + "," +
+      "LUTs (%)" + "," +
+      "FFs (%)" + "," +
+      "BRAM (%)" + "," +
+      "DSPs (%)" + "," +
+      "(bucket type : per bucket err)" + "\n"
+    )
+
+    for num_buckets in range(1, max_num_buckets + 1):
+      baseline = compute_small_footprint_baseline(data, ground_truth_histo, num_buckets)
+      err = rmse(baseline, ground_truth_histo)
+      histo_res = baseline.get_resource_consumption()
+
+      buckets_str = ''
+      for b in baseline.buckets:
+        buckets_str += '(' + str(type(b)) + ' : ' + str(rmse_of_bucket(b, ground_truth_histo, min_val)) + ') '
+
+      file.write(
+        str(num_buckets) + "," +
+        str(len(baseline.buckets)) + "," +
+        str(err) + "," +
+        str(baseline.weighted_resource_usage(resource_budget)) + "," +
+        str(baseline.get_latency()) + "," +
+        str(histo_res[0] / resource_budget[0] * 100) + "," +
+        str(histo_res[1] / resource_budget[1] * 100) + "," +
+        str(histo_res[2] / resource_budget[2] * 100) + "," +
+        str(histo_res[3] / resource_budget[3] * 100) + "," +
+        buckets_str + "\n"
+      )
+
+def compute_highest_accuracy_baseline_for_strategy(data, ground_truth_histo, num_buckets, split_strategy, min_data, max_data):
+  bucket_types = [CoarseGrainedSimpleBucket, CoarseGrainedDistinctBucket, CoarseGrainedBloomBucket, CoarseGrainedCountingBloomBucket, FineGrainedBucket]
+  sizes = ['S', 'M', 'L']
+  
+  ordered_candidate_buckets = []
+
+  basline_histo = HybridHistogram(min_data, max_data + 1)
+  buckets_config = histogram_configuration(data, ground_truth_histo, num_buckets, split_strategy)
+  for config in buckets_config:
+    low, high, stat = config
+
+    candidate_buckets = []
+
+    for bucket_type in bucket_types:
+      # if high - low < 50 and bucket_type == FineGrainedBucket or high - low < 50 and bucket_type == CoarseGrainedCountingBloomBucket:
+      #   continue
+
+      for size in sizes:
+        bucket = bucket_type.create_default_bucket(size)
+        bucket.config(low, high)
+
+        for sample in range(low, high):
+          ground_truth_count = ground_truth_histo[sample - min_data]
+
+          while ground_truth_count > 0:
+            bucket.update(sample)
+            ground_truth_count -= 1
+
+        err = rmse_of_bucket(bucket, ground_truth_histo, min_data)
+        LUT, FF, BRAM, DSP = bucket.get_resource_consumption()
+
+        candidate_buckets.append((bucket, err, LUT, FF, BRAM, DSP))
+
+    candidate_buckets.sort(key=lambda x: (x[1], x[2], x[3], x[4], x[5]))
+
+    ordered_candidate_buckets.append(candidate_buckets)
+
+  for candidate_list in ordered_candidate_buckets:
+    basline_histo.add_bucket(candidate_list[0][0])
+  
+  return basline_histo
+
+def compute_highest_accuracy_baselines_all(data_path, resource_budget, max_num_buckets):
+  outputs_path = './Baselines/' + data_path.rsplit('/', 1)[-1] + '_baseline_high_footprint_width.csv'
+  data = read_csv_file(data_path)
+  ground_truth_histo = compute_per_value_histogram(data)
+
+  # split_strategies = ['depth-count', 'depth-distinct', 'width']
+  split_strategies = ['width']
+
+  min_val = min(data)
+  max_val = max(data)
+
+  with open(outputs_path, mode="w", encoding="utf-8") as file:
+    file.write(
+      "max # buckets" + "," +
+      "actual # buckets" + "," +
+      "ground truth split strategy" + "," +
+      "overall err" + "," +
+      "weighted res. consumption" + "," +
+      "latency (cycles)" + "," +
+      "LUTs (%)" + "," +
+      "FFs (%)" + "," +
+      "BRAM (%)" + "," +
+      "DSPs (%)" + "," +
+      "(bucket type : per bucket err)" + "\n"
+    )
+
+    for split_strategy in split_strategies:
+
+      for num_buckets in range(1, max_num_buckets + 1):
+        baseline = compute_highest_accuracy_baseline_for_strategy(data, ground_truth_histo, num_buckets, split_strategy, min_val, max_val)
+        err = rmse(baseline, ground_truth_histo)
+        histo_res = baseline.get_resource_consumption()
+
+        print(f"{split_strategy}: # {num_buckets} buckets")
+
+        buckets_str = ''
+        for b in baseline.buckets:
+          buckets_str += '(' + str(type(b)) + ' : ' + str(rmse_of_bucket(b, ground_truth_histo, min_val)) + ') '
+
+        file.write(
+          str(num_buckets) + "," +
+          str(len(baseline.buckets)) + "," +
+          split_strategy + "," +
+          str(err) + "," +
+          str(baseline.weighted_resource_usage(resource_budget)) + "," +
+          str(baseline.get_latency()) + "," +
+          str(histo_res[0] / resource_budget[0] * 100) + "," +
+          str(histo_res[1] / resource_budget[1] * 100) + "," +
+          str(histo_res[2] / resource_budget[2] * 100) + "," +
+          str(histo_res[3] / resource_budget[3] * 100) + "," +
+          buckets_str + "\n"
+        )
+
+def one_bucket_fine_grained_baseline(data_path, resource_budget):
+  data = read_csv_file(data_path)
+  outputs_path = './Baselines/' + data_path.rsplit('/', 1)[-1] + '_baseline_1_big_FG_bucket.csv'
+  ground_truth_histo = compute_per_value_histogram(data)
+
+  min_val = min(data)
+  max_val = max(data)
+
+  baseline = HybridHistogram(min_val, max_val + 1)
+  FG = FineGrainedBucket.create_default_bucket('XL')
+  FG.config(min_val, max_val + 1)
+  baseline.add_bucket(FG)
+
+  with open(outputs_path, mode="w", encoding="utf-8") as file:
+
+    file.write(
+      "overall err" + "," +
+      "weighted res. consumption" + "," +
+      "latency (cycles)" + "," +
+      "LUTs (%)" + "," +
+      "FFs (%)" + "," +
+      "BRAM (%)" + "," +
+      "DSPs (%)" + "," +
+      "(bucket type : per bucket err)" + "\n"
+    )
+
+    err = rmse(baseline, ground_truth_histo)
+    histo_res = baseline.get_resource_consumption()
+
+    buckets_str = ''
+    for b in baseline.buckets:
+      buckets_str += '(' + str(type(b)) + ' : ' + str(rmse_of_bucket(b, ground_truth_histo, min_val)) + ') '
+
+    file.write(
+      str(err) + "," +
+      str(baseline.weighted_resource_usage(resource_budget)) + "," +
+      str(baseline.get_latency()) + "," +
+      str(histo_res[0] / resource_budget[0] * 100) + "," +
+      str(histo_res[1] / resource_budget[1] * 100) + "," +
+      str(histo_res[2] / resource_budget[2] * 100) + "," +
+      str(histo_res[3] / resource_budget[3] * 100) + "," +
+      buckets_str + "\n"
+    )
+
+def compute_multiple_fine_grained_basline(data_path, num_buckets, resource_budget):
+  data = read_csv_file(data_path)
+  outputs_path = './Baselines/' + data_path.rsplit('/', 1)[-1] + '_baseline_multiple_FG_buckets.csv'
+  ground_truth_histo = compute_per_value_histogram(data)
+
+  buckets_config = histogram_configuration(data, ground_truth_histo, num_buckets, 'width')
+
+  min_val = min(data)
+  max_val = max(data)
+
+  baseline_histo = HybridHistogram(min_val, max_val + 1)
+
+  for config in buckets_config:
+    low, high, stat = config
+    print(low, high)
+
+    bucket = FineGrainedBucket.create_default_bucket('L')
+    print(bucket.get_resource_consumption())
+    bucket.config(low, high)
+    baseline_histo.add_bucket(bucket)
+    
+    for sample in range(low, high):
+      ground_truth_count = ground_truth_histo[sample - min_val]
+
+      while ground_truth_count > 0:
+        baseline_histo.update(sample)
+        ground_truth_count -= 1
+
+  with open(outputs_path, mode="w", encoding="utf-8") as file:
+
+    file.write(
+      "overall err" + "," +
+      "weighted res. consumption" + "," +
+      "latency (cycles)" + "," +
+      "LUTs (%)" + "," +
+      "FFs (%)" + "," +
+      "BRAM (%)" + "," +
+      "DSPs (%)" + "," +
+      "(bucket type : per bucket err)" + "\n"
+    )
+
+    err = rmse(baseline_histo, ground_truth_histo)
+    histo_res = baseline_histo.get_resource_consumption()
+
+    print(histo_res)
+
+    buckets_str = ''
+    for b in baseline_histo.buckets:
+      buckets_str += '(' + str(type(b)) + ' : ' + str(rmse_of_bucket(b, ground_truth_histo, min_val)) + ') '
+
+    file.write(
+      str(err) + "," +
+      str(baseline_histo.weighted_resource_usage(resource_budget)) + "," +
+      str(baseline_histo.get_latency()) + "," +
+      str(histo_res[0] / resource_budget[0] * 100) + "," +
+      str(histo_res[1] / resource_budget[1] * 100) + "," +
+      str(histo_res[2] / resource_budget[2] * 100) + "," +
+      str(histo_res[3] / resource_budget[3] * 100) + "," +
+      buckets_str + "\n"
+    )
+
 def run(data_path, resource_budget, num_buckets, algorithm, split_strategy):
   data = read_csv_file(data_path)
   ground_truth_histo = compute_per_value_histogram(data)
@@ -1089,7 +1365,7 @@ def run_all(data_path, outputs_path, resource_budget, max_num_buckets):
       "(bucket type : per bucket err)" + "\n"
     )
 
-    for num_buckets in range(1, max_num_buckets + 1):
+    for num_buckets in range(3, max_num_buckets + 1):
       print(f"num buckets = {num_buckets}")
       for split_strategy in ['depth-count', 'depth-distinct', 'width']:
         candidate_buckets = construct_candidates(data, ground_truth_histo, resource_budget, num_buckets, split_strategy, True)
@@ -1273,28 +1549,25 @@ def run_all_parallel2(data_path, outputs_path, resource_budget, max_num_buckets,
         for result in results:
             file.write(','.join(map(str, result)) + '\n')
 
-# data_path = './Data/heatdata_small.csv'
-# data_path = './Data/humidity_large_values.csv'
-# data_path = './Data/vineyard_data_small.csv'
-# data_path = './Data/vineyard_data_2000.csv'
-# data_path = './Data/pm_data_times_100.csv'
-# data_path = './Data/humidity_dataset.csv'
-# data_path = './Data/10m_tunnel_phy_4000.csv'
-# data_path = './Data/alcohol_sales.csv'
-# data_path = './Data/engine_lub_oil_first2000_x1000000.csv'
-# data_path = './Data/engine_lub_oil_temp_first2000_x100000.csv'
-# data_path = './Data/elevator_predictive_maintenance_s4_x1000.csv'
-data_path = './Data/10m_vineyard_phy_first2000_x100000.csv'
+with open("config.yaml", "r") as f:
+    cfg = yaml.safe_load(f)
 
-zynq_budget = (230400, 460800, 312, 1728)
-basys3_budget = (20800, 41600, 50, 90)
+data_file = cfg["data_path"]
+platform = cfg["platform"]
+outputs_file = cfg.get("outputs_path", "./Outputs/results.csv")
+budgets = cfg["budgets"]
 
-outputs_path = './Outputs/results_10m_vineyard_phy_first2000_x100000_up_to_26.csv'
-# outputs_path = './Outputs/results_humidity_small_values.csv'
-
-# run(data_path, basys3_budget, 1, greedy_avg_res_histogram, 'width')
-
-n = len(read_csv_file(data_path))
+# Rice rule for determining the optimal number of buckets in a histogram
+n = len(read_csv_file(data_file))
 k = math.ceil(2 * (n ** (1 / 3)))
 print(f"k = {k}")
-run_all_parallel2(data_path, outputs_path, basys3_budget, k, 15)
+
+max_buckets = cfg.get("max_buckets", k)
+
+if platform not in budgets:
+    raise ValueError(f"Unknown platform '{platform}' in config")
+budget = tuple(budgets[platform]) 
+
+run_all(data_file, outputs_file, budget, max_buckets)
+compute_small_footprint_baseline_all(data_file, budget, max_buckets)
+compute_highest_accuracy_baselines_all(data_file, budget, max_buckets)

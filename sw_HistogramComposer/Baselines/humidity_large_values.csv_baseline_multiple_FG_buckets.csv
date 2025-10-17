@@ -1,0 +1,2 @@
+overall err,weighted res. consumption,latency (cycles),LUTs (%),FFs (%),BRAM (%),DSPs (%),(bucket type : per bucket err)
+0.7303066393220985,0.05609474215363696,24,19.557692307692307,7.788461538461538,90.0,0.0,(<class '__main__.FineGrainedBucket'> : 0.5816602532610842) (<class '__main__.FineGrainedBucket'> : 0.8662506906964424) (<class '__main__.FineGrainedBucket'> : 0.0) (<class '__main__.FineGrainedBucket'> : 1.4527096346302697) (<class '__main__.FineGrainedBucket'> : 0.030176618988053478) (<class '__main__.FineGrainedBucket'> : 0.008834694471951935) 
